@@ -11,8 +11,7 @@ from pathlib import Path
 p = str(Path(__file__).absolute().parent.parent)
 sys.path.append(p)
 
-from models.layers import TransformerEncoderInterpret, TransformerEncoderLayerInterpret, PositionalEncodingTF
-from models.layers import TransformerClassifier, StateClassifier, CNNClassifier, InceptionClassifier, CausalInceptionClassifier, TCNClassifier
+from models.layers import StateClassifier, TCNClassifier
 
 from tint.models import Net
 from torchmetrics import Accuracy, Precision, Recall, AUROC, F1Score, AveragePrecision
@@ -26,10 +25,6 @@ def get_classifier(
     model_type,
     data,
 ):  
-    if model_type == 'tcn' and data in ['GunPoint', 'TwoPatterns']:
-        model_params = {'channels':256, 'dilation_base':4, 'dropout': 0., 'n_blocks':4}
-    else:
-        model_params = {}
     classifier = ClassifierNet(
         feature_size=num_features,
         n_state=num_classes,
@@ -40,7 +35,7 @@ def get_classifier(
         lr=0.0001,
         l2=1e-3,
         model_type=model_type,
-        model_params=model_params
+        model_params={}
     )   
     return classifier
 
@@ -67,7 +62,6 @@ class ClassifierNet(Net):
         pam: bool = False,
     ):
         
-        self.multiclass = (n_state > 2)
         if model_type == "state":
             classifier = StateClassifier(
                 feature_size=feature_size,
@@ -77,45 +71,6 @@ class ClassifierNet(Net):
                 dropout=dropout,
                 regres=regres,
                 bidirectional=bidirectional,
-            )
-
-        elif model_type == "transformer":
-            mimic_config = {
-                'd_inp': feature_size,
-                # 'd_model': 36,
-                'nhead': 1,
-                # 'nhid': 2 * 36,
-                'nlayers': 1,
-                'enc_dropout': 0.3,
-                'max_len': n_timesteps,
-                'd_static': 0,
-                'MAX': n_timesteps,
-                'aggreg': 'mean',
-                'n_classes': n_state,
-                'static': False,
-            }
-            classifier = TransformerClassifier(**mimic_config)
-            
-        elif model_type == "cnn":
-            classifier = CNNClassifier(d_inp=feature_size, 
-                            n_classes=n_state, 
-                             dim=128)
-        elif model_type == "cnn_v0":
-            classifier = CNNClassifier(d_inp=feature_size, 
-                            n_classes=n_state, 
-                             dim=128)
-        elif model_type == "inception":
-            classifier = InceptionClassifier(
-                seq_len=n_timesteps, 
-                num_classes=n_state, 
-                in_channels=feature_size,
-                **model_params
-            )
-        elif model_type == "causal_inception":
-            classifier = CausalInceptionClassifier(
-                num_classes=n_state, 
-                in_channels=feature_size,
-                **model_params
             )
         elif model_type == "tcn":
             classifier = TCNClassifier(
@@ -147,7 +102,6 @@ class ClassifierNet(Net):
     def forward(self, *args, **kwargs) -> th.Tensor:
         return self.net(*args, **kwargs)
     
-        # when execute deeplift, self.net(*args, **kwargs).softmax(-1)
 
     def step(self, batch, batch_idx, stage):
         x, y = batch
@@ -158,8 +112,6 @@ class ClassifierNet(Net):
         for metric in ["acc", "pre", "rec", "auroc", "auprc", "f1"]:
             getattr(self, stage + "_" + metric)(y_hat, y.long())
             self.log(stage + "_" + metric, getattr(self, stage + "_" + metric))
-
-
         return loss
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
@@ -167,7 +119,4 @@ class ClassifierNet(Net):
         return self(x.float())
     
     def predict(self, *args, **kwargs) -> th.Tensor:
-        # print(self.net(*args, **kwargs))
-        # print(self.net(*args, **kwargs).shape)
-        # raise RuntimeError
         return self.net(*args, **kwargs).softmax(-1)

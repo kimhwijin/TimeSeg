@@ -4,10 +4,7 @@ p = str(Path(__file__).absolute().parent.parent)
 sys.path.append(p)
 
 import os
-import torch
 
-
-from models.classifier import ClassifierNet
 from datasets.epilepsy import Epilepsy
 from datasets.UCR import UCR, UCR_config
 from datasets.MITECG import MITECG

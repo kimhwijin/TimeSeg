@@ -3,21 +3,18 @@ warnings.filterwarnings('ignore')
 
 from functools import partial
 from itertools import cycle
-from collections import defaultdict, OrderedDict
+from collections import defaultdict
 
 import os
-import psutil
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, average_precision_score, jaccard_score
-from sklearn.preprocessing import label_binarize
 # 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.distributions as D
 # 
 from tensordict import TensorDict
 from tensordict.nn import TensorDictModule, InteractionType
@@ -32,20 +29,11 @@ from torchrl.data.replay_buffers import (
 from datasets import get_datamodule
 
 from distributions import get_dist
-from models import Policy, Value, Predictor
+from models import Policy, Value
 from utils import env, EarlyStopping
 from utils.masking import MaskingFunction
 from rewards import Reward, Terminate
-from models.classifier import ClassifierNet, get_classifier
-from tint.metrics.white_box import (
-    aup,
-    aur,
-    information,
-    entropy,
-    roc_auc,
-    auprc,
-)
-
+from models.classifier import get_classifier
 from torchmetrics import Accuracy, Precision, Recall, AUROC, F1Score, AveragePrecision
 
 import gc
@@ -54,7 +42,6 @@ torch.set_num_threads(8)
 
 def main(
     seg_dist,
-    nb_transform,
     reward_types,
     terminate_type,
     weights,
@@ -93,7 +80,7 @@ def main(
     test_loader         = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, pin_memory=True)
     cycle_train_loader  = cycle(train_loader)
 
-    distribution_class, distribution_kwargs, (d_start, d_end) = get_dist(seg_dist, seq_len, nb_transform)
+    distribution_class, distribution_kwargs, (d_start, d_end) = get_dist(seg_dist, seq_len)
 
     policy_net = Policy.PolicyNetwork(
         d_in        = d_in+1,
@@ -238,27 +225,12 @@ def main(
         )
         if early_stop.stop: break
         
-    test_sample_plot(
-        epoch               = epoch,
-        policy_module       = policy_module,
-        predictor           = classifier,
-        plot_set            = test_set,
-        num_classes         = num_class,
-        reward_fn           = reward_fn,
-        terminate_fn        = terminate_fn,
-        mask_fn             = mask_fn,
-        seg_dist            = seg_dist,
-        seq_len             = seq_len,
-        max_segment         = max_segment,
-        device              = device,
-    )
 
     test_step(
         dataset         = dataset,
         split           = split,
         seed            = seed,
         seg_dist        = seg_dist,
-        nb_transform    = nb_transform,
         backbone        = backbone,
         entropy_coef    = entropy_coef,
         mask_type       = mask_type,
@@ -276,7 +248,6 @@ def test_step(
     split,
     seed,
     seg_dist,
-    nb_transform,
     backbone,
     entropy_coef,
     mask_type,
@@ -293,7 +264,6 @@ def test_step(
     train_set       = datamodule.train
     valid_set       = datamodule.val
     test_set        = datamodule.test
-    # true_saliency   = datamodule.true_saliency()
 
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, pin_memory=True)
 
@@ -301,7 +271,7 @@ def test_step(
     d_model     = 128
     d_out       = num_class
 
-    distribution_class, distribution_kwargs, (d_start, d_end) = get_dist(seg_dist, seq_len, nb_transform)
+    distribution_class, distribution_kwargs, (d_start, d_end) = get_dist(seg_dist, seq_len)
 
     policy_net = Policy.PolicyNetwork(
         d_in        = d_in+1,
@@ -375,8 +345,7 @@ def test_step(
                     "curr_mask": torch.zeros_like(x, dtype=bool) if _tensor_dict is None else _curr_mask
                 }, 
                 batch_size=(_batch_B,), device=device)
-            # ------------------------ New Segment ------------------
-            # _dist = policy_module.get_dist(_tensor_dict)
+
             env.step(
                 _tensor_dict, 
                 policy_module, 
@@ -404,18 +373,9 @@ def test_step(
 
 
     sparsity = mask.float().mean().item()
-    # baseline_mask = {}
-    # baseline_attr = torch.load(f"./model_ckpt/{dataset}/{backbone[0]}_attr_{split}_{seed}.pth")
-    # for m, attr in baseline_attr.items():
-    #     _threshold = torch.quantile(attr, 1-sparsity, keepdim=True, dim=1)
-    #     baseline_mask[m] = torch.where(attr >= _threshold, True, False).bool().cpu()
-    
+
     baseline_mask = {}
     baseline_mask['Ours'] = mask
-    attr = torch.rand_like(mask)
-    _threshold = torch.quantile(attr, 1-sparsity, keepdim=True, dim=1)
-    baseline_mask['random'] = torch.where(attr >= _threshold, True, False).bool().cpu()
-    baseline_mask['original'] = torch.ones_like(attr)
     
     y = test_set.data['y']
     gt_mask = test_set.data['true']
@@ -423,167 +383,6 @@ def test_step(
     for m, b_mask in baseline_mask.items():
         print(m, round(f1_score(gt_mask[saliency_index], b_mask[saliency_index], average='samples'), 2))
 
-
-@torch.no_grad()
-def test_sample_plot(
-    epoch,
-    policy_module,
-    predictor,
-    plot_set,
-    num_classes,
-    reward_fn,
-    terminate_fn,
-    mask_fn,
-    seg_dist,
-    seq_len,
-    max_segment,
-    device,
- ):
-    
-    policy_module.load_state_dict(torch.load(f'./model_ckpt/policy.pth'))
-    policy_module.eval()
-
-    class_samples = defaultdict(list)
-    for batch in plot_set:
-        x = batch['x']; y = batch['y']
-        if len(class_samples[y.item()]) < 20:
-            d = {"x": x.squeeze(0), "y": y}
-            if "gt_mask" in batch:
-                d.update({"gt_mask": batch["gt_mask"].squeeze(0)})
-            class_samples[y.item()].append(d)
-
-        tot = 0
-        for k, v in class_samples.items():
-            tot += len(v)
-        if tot == 20 * num_classes:
-            break
-
-    n_cols, rows_per_class = 5, 4    
-    n_rows = rows_per_class * num_classes
-
-    fig = plt.figure(figsize=(20, 4 * n_rows))
-    outer_gs = fig.add_gridspec(n_rows, n_cols)
-
-    for cls in range(num_classes):
-        for idx, (d_dict) in enumerate(class_samples[cls]):
-            x_sample, y_sample = d_dict['x'], d_dict['y']
-            gt_mask = d_dict.get("gt_mask", None)
-
-            row = cls * rows_per_class + idx // n_cols
-            col = idx % n_cols
-
-            inner = outer_gs[row, col].subgridspec(
-                4, 1, height_ratios=[2, 1, 1, 1], hspace=0.05)
-
-            ax_top   = fig.add_subplot(inner[0])
-            ax_mask  = fig.add_subplot(inner[1], sharex=ax_top)
-            ax_start = fig.add_subplot(inner[2], sharex=ax_top)
-            ax_end   = fig.add_subplot(inner[3], sharex=ax_top)
-
-
-            x_tensor = x_sample.unsqueeze(0).to(device)  # [1, T, C]
-            y_target = y_sample.unsqueeze(0).to(device)
-
-
-            td = None
-            mask_rows, start_rows, end_rows = [], [], []
-            start_params, end_params        = [], []
-            step_masks = []
-            for _step in range(1, max_segment+1):
-                if td is not None:
-                    is_done = td['next', 'done'].view(-1)
-                    if is_done.all():
-                        _step -= 1
-                        break
-                    x_tensor = x_tensor[~is_done]
-                    y_target = y_target[~is_done]
-                    curr_mask = td['next', 'curr_mask'][~is_done]
-
-                td = TensorDict(
-                    {"x": x_tensor, 
-                     'y':y_target ,
-                     "curr_mask": torch.zeros_like(x_tensor, dtype=torch.bool) if td is None else curr_mask
-                    },
-                    batch_size=(1,), device=device
-                )
-
-                dist = policy_module.get_dist(td)
-                start_rows.append(dist.start_marginal())
-                start_params.append(dist.start_param())
-
-                end_rows.append(dist.end_marginal())
-                end_params.append(dist.end_param())
-
-                mask_rows.append(dist.calculate_marginal_mask().cpu().squeeze().numpy())
-                env.step(td, policy_module, reward_fn, partial(terminate_fn, step=_step), mode=True)
-
-                new_mask = td['next', 'new_mask'].cpu().squeeze().numpy()
-                step_masks.append(new_mask.astype(int))
-
-
-            x_np        = x_sample.squeeze().numpy()
-            x_masked    = mask_fn(x_tensor, td["next", "curr_mask"])
-            x_probs     = predictor(x_masked).softmax(dim=-1)[:, cls].squeeze().item()
-            x_masked    = x_masked.cpu().squeeze().numpy()
-            masked      = np.where(td["next", 'curr_mask'].cpu().squeeze().numpy(), x_masked, np.nan)
-            y_lo, y_hi  = ax_top.get_ylim()
-            band_h      = (y_hi - y_lo) / _step
-
-            ax_top.plot(x_np, label="original")
-            ax_top.plot(masked, label="masked")
-            if gt_mask is not None:
-                ax_top.plot(gt_mask, label="gt_mask")
-            ax_top.legend()
-
-            ax_top.set_title(f"Class {cls} Sample {idx+1} Probs {x_probs:.3f}, Seg {_step}", fontsize=9)
-
-
-            for s_idx, m in enumerate(step_masks):
-                y0 = y_hi - band_h * s_idx
-                y1 = y0   - band_h
-                color = mpl.cm.tab20(s_idx % 20)
-                
-                d  = np.diff(m.astype(int))
-                st = np.where(d == 1)[0] + 1
-                ed = np.where(d == -1)[0] + 1
-                if m[0]:  st = np.r_[0, st]
-                if m[-1]: ed = np.r_[ed, m.size]
-                
-                for a, b in zip(st, ed):
-                    ax_top.axvspan(a, b, y0, y1, facecolor=color, alpha=0.7,
-                                edgecolor=None)
-
-
-            ax_mask.imshow(np.vstack(mask_rows),
-                           aspect="auto", cmap="Greens",
-                           interpolation="nearest",
-                           extent=[0, seq_len-1, 0, len(mask_rows)])
-            ax_mask.set_yticks([]); ax_mask.set_ylabel("mask", fontsize=6)
-
-            # start / end heat-map
-            ax_start.imshow(np.vstack(start_rows),
-                            aspect="auto", cmap="Blues",
-                            interpolation="nearest",
-                            extent=[0, seq_len-1, 0, len(start_rows)])
-            ax_start.set_yticks(np.arange(len(start_rows)) + 0.5)
-            ax_start.set_yticklabels(start_params, fontsize=6)
-            ax_start.set_ylabel("start p", fontsize=6)
-
-            ax_end.imshow(np.vstack(end_rows),
-                          aspect="auto", cmap="Oranges",
-                          interpolation="nearest",
-                          extent=[0, seq_len-1, 0, len(end_rows)])
-            ax_end.set_yticks(np.arange(len(end_rows)) + 0.5)
-            ax_end.set_yticklabels(end_params, fontsize=6)
-            ax_end.set_ylabel("end p", fontsize=6)
-            ax_end.set_xlabel("t", fontsize=6)
-
-    handles, labels = ax_top.get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower center", ncol=2, fontsize=9)
-    fig.tight_layout()
-    fig.suptitle(f"Epoch {epoch} – multi-segment masking & start/end probs",
-                 fontsize=14)
-    plt.close(fig)
 
 @torch.no_grad()
 def valid_step(
@@ -715,8 +514,7 @@ def valid_step(
     history['masked_acc'].append(masked_acc)
     history['masked_f1'].append(masked_f1)
 
-    if early_stop(val_avg_reward): # is imporved
-        best_reward = early_stop.best
+    if early_stop(val_avg_reward):
         os.makedirs('./model_ckpt/', exist_ok=True)
         torch.save(policy_module.state_dict(), './model_ckpt/policy.pth')
 
@@ -792,99 +590,8 @@ def ppo_update(
     history['train_reward'].append(avg_reward)
 
     policy_module.eval(); value_module.eval()
-    # policy_scheduler.step(); value_scheduler.step()
+    policy_scheduler.step(); value_scheduler.step()
     
-
-def predictor_train(
-    epoch,
-    predictor,
-    classifier,
-    predictor_epochs,
-    replay_buffer,
-    loader,
-    collect_normal_data,
-    rollout_len,
-    pred_optim,
-    predictor_scheduler,
-    mask_fn,  
-    history,
-    target,
-    device,
-):
-    predictor.train()
-    pred_epoch_total = 0.
-    avg_pred_loss = 0.
-    for _ in range(predictor_epochs):
-        if not collect_normal_data:
-            per_epochs = 0
-            for mb in replay_buffer:
-                x = mb['x'].to(device)
-                y = mb['y'].to(device)
-                B = x.size(0)
-                with torch.no_grad():
-                    mask = torch.logical_or(mb['curr_mask'], mb['next', 'curr_mask']).to(device)
-                    masked_x = mask_fn(x, mask)
-                logits = predictor(masked_x)
-                loss = F.cross_entropy(logits, y)
-
-                pred_optim.zero_grad()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(predictor.parameters(), 1.)
-                pred_optim.step()
-
-                pred_epoch_total += B
-                per_epochs += B
-                avg_pred_loss += loss.item() * B
-                if per_epochs >= rollout_len:
-                    break
-
-        elif collect_normal_data:
-            per_epochs = 0
-            for mb, batch in zip(replay_buffer, cycle(loader)):
-                x_1 = mb['x'].to(device)
-                y_1 = mb['y'].to(device)
-
-                B_1 = x_1.size(0)
-                with torch.no_grad():
-                    mask = torch.logical_or(mb['curr_mask'], mb['next', 'curr_mask']).to(device)
-                    masked_x = mask_fn(x_1, mask)
-                
-                x_2 = batch['x'].to(device)
-                if target == 'y':
-                    y_2 = batch['y'].to(device)
-                elif target == 'model':
-                    with torch.no_grad():
-                        y_2 = classifier(x_2).softmax(-1)
-                B_2 = x_2.size(0)
-
-                x = torch.concat([masked_x, x_2], dim=0)
-                y = torch.concat([y_1, y_2], dim=0)
-
-                B = B_1 + B_2
-
-                logits = predictor(x)
-                loss = F.cross_entropy(logits, y)
-
-                pred_optim.zero_grad()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(predictor.parameters(), 1.)
-                pred_optim.step()
-
-                pred_epoch_total += B
-                per_epochs += B
-                avg_pred_loss += loss.item() * B
-                if per_epochs >= rollout_len:
-                    break
-        
-    avg_pred_loss /= pred_epoch_total
-
-    msg = f"\t| Avg Predictor Loss: {avg_pred_loss:.4f}"; print(msg)
-
-    history['pred_loss'].append(avg_pred_loss)
-    wandb.log({
-        "pred/loss": avg_pred_loss
-    }, step=epoch)
-    predictor.eval(); predictor_scheduler.step()
     
 
 @torch.no_grad()  
