@@ -207,6 +207,7 @@ def main(
         )
         valid_step(
             epoch               = epoch,
+            dataset             = dataset,
             loader              = valid_loader,
             plot_set            = valid_set,
             num_classes         = num_class,
@@ -295,7 +296,7 @@ def test_step(
         default_interaction_type    = InteractionType.RANDOM,
     )
 
-    policy_module.load_state_dict(torch.load("./model_ckpt/policy.pth"))
+    policy_module.load_state_dict(torch.load(f"./model_ckpt/{dataset}/policy.pth"))
     classifier = get_classifier(num_features=d_in, num_classes=num_class, max_len=seq_len, model_type=backbone[0], data=dataset)
     classifier.load_state_dict(torch.load(f"./model_ckpt/{dataset}/{backbone[0]}_classifier_{split}_{seed}.ckpt", weights_only=False)['state_dict'])
 
@@ -435,6 +436,7 @@ def test_step(
 @torch.no_grad()
 def valid_step(
     epoch,
+    dataset,
     loader,
     plot_set,
     num_classes,
@@ -563,8 +565,8 @@ def valid_step(
     history['masked_f1'].append(masked_f1)
 
     if early_stop(val_avg_reward):
-        os.makedirs('./model_ckpt/', exist_ok=True)
-        torch.save(policy_module.state_dict(), './model_ckpt/policy.pth')
+        os.makedirs(f'./model_ckpt/{dataset}', exist_ok=True)
+        torch.save(policy_module.state_dict(), f'./model_ckpt/{dataset}/policy.pth')
 
 
 def ppo_update(
