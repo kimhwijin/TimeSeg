@@ -412,7 +412,7 @@ def test_step(
     
     baseline_mask = {}
     baseline_mask['Ours'] = mask
-    attr = torch.rand_like(attr)
+    attr = torch.rand_like(mask)
     _threshold = torch.quantile(attr, 1-sparsity, keepdim=True, dim=1)
     baseline_mask['random'] = torch.where(attr >= _threshold, True, False).bool().cpu()
     baseline_mask['original'] = torch.ones_like(attr)
