@@ -381,7 +381,10 @@ def test_step(
     gt_mask = test_set.data['true']
     saliency_index = (y != 0)
     for m, b_mask in baseline_mask.items():
-        print(m, round(f1_score(gt_mask[saliency_index], b_mask[saliency_index], average='samples'), 2))
+        print(f"{m} | F1 : ", round(f1_score(gt_mask[saliency_index].squeeze(-1), b_mask[saliency_index].squeeze(-1), average='samples'), 2))
+        print(f"     | IoU : ", round(jaccard_score(gt_mask[saliency_index].squeeze(-1), b_mask[saliency_index].squeeze(-1), average='samples'), 2))
+
+
 
 
 @torch.no_grad()
