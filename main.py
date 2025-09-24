@@ -12,7 +12,7 @@ def main():
     parser.add_argument('--seg_dist', type=str, choices=['cat_cat', 'cat_nb', 'cauchy_cat_cat'])
     parser.add_argument('--weights', type=str)
     parser.add_argument('--reward_types', type=str)
-    parser.add_argument('--terminate_type', type=str, default='ce_diff')
+    parser.add_argument('--terminate_type', type=str, default='rel_ce_diff')
     parser.add_argument('--backbone', type=str, default='tcn,cnn')
     parser.add_argument('--train_type', type=str, default='ppo')
     parser.add_argument('--dataset', type=str)
