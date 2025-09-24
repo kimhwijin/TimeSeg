@@ -40,5 +40,5 @@ The trained checkpoint is saved under ./model_ckpt/{dataset}/ (e.g., ./model_ckp
 bash ./scripts/main.sh
 ```
 This command trains the TimeSeg explainer (policy/value networks) and automatically runs the test step at the end.
-Model are saved under: ./model_ckpt/{dataset}/
+
 
