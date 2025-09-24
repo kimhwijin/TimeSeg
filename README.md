@@ -28,8 +28,17 @@ python setup.py install
 cd ..
 ```
 
-## 3) Run
+## 3) Pre-train Black-box Model
 ```bash
-bash main.sh
+bash ./scripts/blackbox_train.sh
 ```
-This will launch the partial pipeline with default settings (train or load the black-box model)
+This will pre-train the black-box with default settings.
+The trained checkpoint is saved under ./model_ckpt/{dataset}/ (e.g., ./model_ckpt/MITECG/) and will be used automatically by the main pipeline.
+
+## 4) Run TimeSeg (train the explainer)
+```bash
+bash ./scripts/main.sh
+```
+This command trains the TimeSeg explainer (policy/value networks) and automatically runs the test step at the end.
+Model are saved under: ./model_ckpt/{dataset}/
+
