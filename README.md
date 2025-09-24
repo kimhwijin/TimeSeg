@@ -2,7 +2,7 @@
 
 ![Model Overview](https://github.com/user-attachments/assets/2e1c3991-aa23-4038-99e7-3720e169cdaf)
 
-## Overall explanation process
+## Figure of Overall Explanation Process
 
 Explaining predictions of black-box time-series models remains a challenging problem due to the dynamically evolving patterns within individual sequences and their complex temporal dependencies. Unfortunately, existing explanation methods largely focus on point-wise explanations, which fail to capture broader temporal context, while methods that attempt to highlight interpretable temporal patterns~(\eg achieved by incorporating a regularizer or fixed-length patches) often lack principled definitions of meaningful segments. This limitation frequently leads to fragmented and confusing explanations for end users. 
 As such, the notion of segment-level explanations has remained underexplored, with little consensus on what constitutes an \textit{interpretable} segment or how such segments should be identified. To bridge this gap, we define segment-level explanation for black-box time-series models as the task of selecting contiguous subsequences that maximize their joint mutual information with the target prediction. Building on this formulation, we propose \name, a novel information-theoretic framework that employs reinforcement learning to sequentially identify predictive temporal segments at a per-instance level. 
