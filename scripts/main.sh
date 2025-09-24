@@ -1,13 +1,13 @@
 python main.py \
     --train_type            ppo \
-    --dataset               MITECG \
+    --dataset               GunPoint \
     --split                 0 \
     --mask_type             mean \
     --epochs                5 \
     --ppo_epochs            4 \
     --max_segment           5 \
     --seg_dist              cat_cat \
-    --weights               1.0,0.3 \
     --batch_size            256 \
     --rollout_len           1024 \
+    --weights               1.0,0.3 \
     --threshold             0.3
