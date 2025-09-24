@@ -376,13 +376,58 @@ def test_step(
 
     baseline_mask = {}
     baseline_mask['Ours'] = mask
+    baseline_mask['original'] = torch.ones_like(mask)
     
-    y = test_set.data['y']
-    gt_mask = test_set.data['true']
-    saliency_index = (y != 0)
-    for m, b_mask in baseline_mask.items():
-        print(f"{m} | F1 : ", round(f1_score(gt_mask[saliency_index].squeeze(-1), b_mask[saliency_index].squeeze(-1), average='samples'), 2))
-        print(f"     | IoU : ", round(jaccard_score(gt_mask[saliency_index].squeeze(-1), b_mask[saliency_index].squeeze(-1), average='samples'), 2))
+    classifier.to(device)
+    results = {
+        "suff": {
+            "mean": defaultdict(list),
+            "zero": defaultdict(list),
+        },
+        "comp": {
+            "mean": defaultdict(list),
+            "zero": defaultdict(list),
+        },
+    }
+    total_n = 0
+    for batch in test_loader:
+        x = batch['x']
+        B = x.shape[0]
+
+        background_m = x.mean([1, 2], keepdim=True)
+        background_z = torch.zeros_like(x)
+
+        for m, bmask in baseline_mask.items():
+            _bmask = bmask[total_n:total_n+B].cpu()
+            for b, background in zip(('mean', 'zero'), (background_m, background_z)):
+
+                x_masked = x * _bmask + background * torch.logical_not(_bmask)
+
+                x_masked = x_masked.float().to(device)
+                y_probs = classifier(x_masked).softmax(-1).cpu()
+                results['suff'][b][m].append(y_probs)
+
+                x_masked = x * torch.logical_not(_bmask) + background * _bmask
+                x_masked = x_masked.float().to(device)
+                y_probs = classifier(x_masked).softmax(-1).cpu()
+                results['comp'][b][m].append(y_probs)
+        
+        total_n += B
+    y_true = test_set.data['y']
+    for m in baseline_mask.keys():
+        for k in ('suff', 'comp'):
+            mean_probs = torch.concat(results['suff']['mean'][m], dim=0)
+            zero_probs = torch.concat(results['suff']['zero'][m], dim=0)
+            mean_auroc = AUROC(task='multiclass', num_classes=num_class)(mean_probs, y_true).item()
+            zero_auroc = AUROC(task='multiclass', num_classes=num_class)(zero_probs, y_true).item()
+            print(f'{m} | {k.upper()} AUROC | MEAN : {mean_auroc:.3f}, ZERO : {zero_auroc:.3f}')
+
+    if test_set.data.get('true', None) != None:
+        gt_mask = test_set.data['true']
+        saliency_index = (y != 0)
+        for m, b_mask in baseline_mask.items():
+            print(f"{m} | F1 : ", round(f1_score(gt_mask[saliency_index].squeeze(-1), b_mask[saliency_index].squeeze(-1), average='samples'), 2))
+            print(f"     | IoU : ", round(jaccard_score(gt_mask[saliency_index].squeeze(-1), b_mask[saliency_index].squeeze(-1), average='samples'), 2))
 
 
 
@@ -655,51 +700,4 @@ def collect_samples(
         if collected >= rollout_len:
                 break
 
-        
-def pretraining_predictor(
-    predictor_pretrain,
-    predictor,
-    pred_optim,
-    loader,
-    seq_len,
-    mask_fn,
-    device,
-):  
-    if predictor_pretrain == 0 or predictor_pretrain is None:
-        return
-    
-    predictor.train()
-    pbar = tqdm(range(predictor_pretrain))
-    for _ in pbar:
-        total_loss = 0.
-        y_true = []
-        y_pred = []
-
-        total = 0.
-        for batch in loader:
-            x = batch['x'].to(device)
-            y = batch['y'].to(device)
-            B = x.size(0)
-
-
-            indices, _ = torch.multinomial(
-                torch.tensor([1/seq_len]).repeat(B, seq_len), 2, replacement=True
-            ).sort()
-            start, end = indices[:, :1], indices[:, 1:]
-            arange = torch.arange(seq_len).unsqueeze(0)
-            mask = torch.logical_and(start <= arange, arange <= end).unsqueeze(-1).to(device)
-            segments = mask_fn(x, mask)
-            logits = predictor(torch.concat([segments, x], dim=0))
-            loss = F.cross_entropy(logits, torch.concat([y, y], dim=0))
-
-            pred_optim.zero_grad()
-            loss.backward()
-            pred_optim.step()
-
-            total_loss += B * loss.item()
-            y_pred.append(y.cpu().detach().numpy())
-            y_pred.append(logits.softmax(-1).argmax(-1).cpu().detach().numpy())
-            total += B
-        pbar.set_postfix(loss = round(total_loss / total, 4))
-    predictor.eval()
     
