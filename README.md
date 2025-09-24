@@ -13,7 +13,7 @@ By doing so, \name produces segment-wise explanations that capture holistic temp
 ## 1) Create and activate a conda env (Python 3.9)
 
 ```bash
-conda env create --name time-segment python==3.9
+conda create --name time-segment python==3.9
 conda activate time-segment
 ```
 
