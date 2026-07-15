@@ -118,7 +118,7 @@ TimeSeg is evaluated on synthetic datasets (with ground-truth explanatory segmen
 | MIT-ECG   |   90,337 |    360 |   1 |       2 | ✅ QRS interval        |
 | Epilepsy  |   11,500 |    178 |   1 |       2 | ❌                     |
 | Wafer     |    7,164 |    152 |   1 |       2 | ❌                     |
-| GunPoint  |      400 |    150 |   1 |       2 | ❌ (qualitative only)  |
+| GunPoint  |      400 |    150 |   1 |       2 | ❌                     |
 
 Corresponding dataset loaders live under `./datasets/` (`SeqCombSingle.py`, `FreqShapeVar.py`, `LowVarDetectSingle.py`, `MITECG.py`, `epilepsy.py`, `UCR.py`).
 
