@@ -157,6 +157,6 @@ If you find TimeSeg useful in your research, please consider citing our paper:
 
 # Acknowledgements
 
-Our synthetic datasets and preprocessing build on [TimeX](https://github.com/mims-harvard/TimeX) (Queen et al., 2023), and baseline explainers use the [`time_interpret`](https://github.com/josephenguehard/time_interpret) library.
+Our synthetic datasets and preprocessing build on [TimeX](https://github.com/mims-harvard/TimeX) (Queen et al., 2023).
 
 This work was supported by the National Research Foundation of Korea (NRF) grant funded by the Korea government (MSIT) (No. RS-2024-00358602) and by IITP grants funded by the Korea government (MSIT): the Artificial Intelligence Graduate School Program (No. RS-2019-II190079, Korea University), the AI Star Fellowship (No. RS-2025-02304828), and the AI Research Hub Project (No. RS-2024-00457882).
